@@ -4,8 +4,8 @@ import { Point, bezier } from '../utils/bezier';
 const BezierCanvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [points, setPoints] = useState<Point[]>([
-        { x: 0, y: 300 },
-        { x: 800, y: 300 }
+        { x: 50, y: 300 },
+        { x: 750, y: 300 }
     ]);
     const [controlPoints, setControlPoints] = useState<Point[]>([]);
     const [draggingPointIndex, setDraggingPointIndex] = useState<number | null>(null);
@@ -76,7 +76,7 @@ const BezierCanvas: React.FC = () => {
             const y = event.clientY - rect.top;
             const pointIndex = points.findIndex(point => Math.hypot(point.x - x, point.y - y) < 5);
             const controlPointIndex = controlPoints.findIndex(point => Math.hypot(point.x - x, point.y - y) < 5);
-            if (pointIndex !== -1 && pointIndex !== 0 && pointIndex !== 1) {
+            if (pointIndex !== -1) {
                 setDraggingPointIndex(pointIndex);
                 setIsDragging(true);
             } else if (controlPointIndex !== -1) {
