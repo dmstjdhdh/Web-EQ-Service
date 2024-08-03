@@ -3,7 +3,11 @@ import { Point, bezier } from '../utils/bezier';
 
 const BezierCanvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const [points, setPoints] = useState<Point[]>([]);
+    const [points, setPoints] = useState<Point[]>([
+        { x: 0, y: 300 },
+        { x: 800, y: 300 }
+    ]);
+    const [controlPoints, setControlPoints] = useState<Point[]>([]);
     const [draggingPointIndex, setDraggingPointIndex] = useState<number | null>(null);
     const [isDragging, setIsDragging] = useState<boolean>(false);
 
@@ -13,20 +17,23 @@ const BezierCanvas: React.FC = () => {
             const ctx = canvas.getContext('2d');
             if (ctx) {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-                if (points.length > 1) {
-                    drawBezierCurve(ctx, points);
-                }
+                drawBezierCurve(ctx, [points[0], ...controlPoints, points[1]]);
                 drawPoints(ctx, points);
+                drawPoints(ctx, controlPoints);
             }
         }
-    }, [points]);
+    }, [points, controlPoints]);
 
     const drawBezierCurve = (ctx: CanvasRenderingContext2D, points: Point[]) => {
         ctx.beginPath();
         ctx.moveTo(points[0].x, points[0].y);
-        for (let t = 0; t <= 1; t += 0.01) {
-            const point = bezier(t, points);
-            ctx.lineTo(point.x, point.y);
+        if (points.length === 2) {
+            ctx.lineTo(points[1].x, points[1].y);
+        } else {
+            for (let t = 0; t <= 1; t += 0.01) {
+                const point = bezier(t, points);
+                ctx.lineTo(point.x, point.y);
+            }
         }
         ctx.stroke();
     }
@@ -41,33 +48,39 @@ const BezierCanvas: React.FC = () => {
     }
 
     const handleCanvasClick = (event: React.MouseEvent) => {
-        if (isDragging) {
-            // 드래깅 중이라면 클릭 이벤트를 무시합니다.
-            return;
-        }
+        if (isDragging) return;
 
         const canvas = canvasRef.current;
         if (canvas) {
             const rect = canvas.getBoundingClientRect();
-            const x = event.clientX - rect.left;
-            const y = event.clientY - rect.top;
-            setPoints([...points, { x, y }]);
+            const clickX = event.clientX - rect.left;
+            const clickY = event.clientY - rect.top;
+
+            const p1 = points[0];
+            const p2 = points[1];
+            const t = (clickX - p1.x) / (p2.x - p1.x);
+            const newPoint = {
+                x: clickX,
+                y: p1.y + t * (p2.y - p1.y)
+            };
+
+            setControlPoints([...controlPoints, newPoint]);
         }
     }
 
     const handleMouseDown = (event: React.MouseEvent) => {
-        if (isDragging) {
-            // 드래깅 중이라면 클릭 이벤트를 무시합니다.
-            return;
-        }
         const canvas = canvasRef.current;
         if (canvas) {
             const rect = canvas.getBoundingClientRect();
             const x = event.clientX - rect.left;
             const y = event.clientY - rect.top;
             const pointIndex = points.findIndex(point => Math.hypot(point.x - x, point.y - y) < 5);
-            if (pointIndex !== -1) {
+            const controlPointIndex = controlPoints.findIndex(point => Math.hypot(point.x - x, point.y - y) < 5);
+            if (pointIndex !== -1 && pointIndex !== 0 && pointIndex !== 1) {
                 setDraggingPointIndex(pointIndex);
+                setIsDragging(true);
+            } else if (controlPointIndex !== -1) {
+                setDraggingPointIndex(controlPointIndex + 2);
                 setIsDragging(true);
             }
         }
@@ -80,21 +93,31 @@ const BezierCanvas: React.FC = () => {
                 const rect = canvas.getBoundingClientRect();
                 const x = event.clientX - rect.left;
                 const y = event.clientY - rect.top;
-                const newPoints = points.slice();
-                newPoints[draggingPointIndex] = { x, y };
-                setPoints(newPoints);
+                if (draggingPointIndex < 2) {
+                    const newPoints = points.slice();
+                    newPoints[draggingPointIndex] = { x, y };
+                    setPoints(newPoints);
+                } else {
+                    const newControlPoints = controlPoints.slice();
+                    newControlPoints[draggingPointIndex - 2] = { x, y };
+                    setControlPoints(newControlPoints);
+                }
             }
         }
     }
 
     const handleMouseUp = () => {
-        setDraggingPointIndex(null);
-        setIsDragging(false);
+        setTimeout(() => {
+            setDraggingPointIndex(null);
+            setIsDragging(false);
+        }, 100);
     }
 
     const handleMouseLeave = () => {
-        setDraggingPointIndex(null);
-        setIsDragging(false);
+        setTimeout(() => {
+            setDraggingPointIndex(null);
+            setIsDragging(false);
+        }, 100);
     }
 
     return (
