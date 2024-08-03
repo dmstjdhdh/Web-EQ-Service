@@ -40,3 +40,6 @@ coverage/
 
 # TypeScript build info files
 *.tsbuildinfo
+
+# WebStorm IDE
+.idea
