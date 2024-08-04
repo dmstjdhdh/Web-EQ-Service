@@ -1,43 +1,43 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { bezier, Point } from '../utils/bezier';
-
-const frequencies = [
-    25, 31, 40, 50, 63, 80, 100, 125, 160, 200,
-    250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000,
-    2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
-];
-
-const mapValue = (value: number, inputMin: number, inputMax: number, outputMin: number, outputMax: number): number => {
-    return ((value - inputMin) * (outputMax - outputMin)) / (inputMax - inputMin) + outputMin;
-};
+import { defaultPoints } from "../constants/defaultPoints";
+import { mapValue } from "../function/mapValue";
+import { frequencies } from "../constants/frequences";
+import { bezier, Point } from "../utils/bezier";
 
 const BezierCanvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+    const analyserNodeRef = useRef<AnalyserNode | null>(null);
     const filterNodesRef = useRef<BiquadFilterNode[]>([]);
     const audioElementRef = useRef<HTMLAudioElement | null>(null);
-    const [points, setPoints] = useState<Point[]>([
-        { x: 0, y: 300 },
-        { x: 800, y: 300 }
-    ]);
-    const [controlPoints, setControlPoints] = useState<Point[]>([]);
+    const [points, setPoints] = useState<Point[]>(defaultPoints);
     const [draggingPointIndex, setDraggingPointIndex] = useState<number | null>(null);
-    const [isDragging, setIsDragging] = useState<boolean>(false);
+
+    useEffect(() => {
+        setupCanvas();
+    }, []);
 
     useEffect(() => {
         const canvas = canvasRef.current;
         if (canvas) {
             const ctx = canvas.getContext('2d');
             if (ctx) {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                drawBezierCurve(ctx, [points[0], ...controlPoints, points[1]]);
-                drawPoints(ctx, points);
-                drawPoints(ctx, controlPoints);
+                draw(ctx);
             }
         }
         updateFilterGains();
-    }, [points, controlPoints]);
+    }, [points]);
+
+    const setupCanvas = () => {
+        const canvas = canvasRef.current;
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                draw(ctx);
+            }
+        }
+    };
 
     const setupAudioNodes = () => {
         const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
@@ -47,6 +47,10 @@ const BezierCanvas: React.FC = () => {
         const audioElement = audioElementRef.current!;
         const sourceNode = audioContext.createMediaElementSource(audioElement as HTMLMediaElement);
         sourceNodeRef.current = sourceNode;
+
+        const analyserNode = audioContext.createAnalyser();
+        analyserNode.fftSize = 2048;
+        analyserNodeRef.current = analyserNode;
 
         const inputNode = audioContext.createGain();
         sourceNode.connect(inputNode);
@@ -73,66 +77,88 @@ const BezierCanvas: React.FC = () => {
 
         const outputNode = audioContext.createGain();
         filterNodesRef.current[filterNodesRef.current.length - 1].connect(outputNode);
-        outputNode.connect(audioContext.destination);
+        outputNode.connect(analyserNode);
+        analyserNode.connect(audioContext.destination);
 
         sourceNode.connect(filterNodesRef.current[0]);
-    }
+    };
 
     const updateFilterGains = () => {
-        const controlPointsWithEndpoints = [points[0], ...controlPoints, points[1]];
+        const controlPointsWithEndpoints = points;
         filterNodesRef.current.forEach((filter, index) => {
             const t = index / (filterNodesRef.current.length - 1);
             const point = bezier(t, controlPointsWithEndpoints);
             const frequency = mapValue(point.x, 0, 800, 20, 20000);
             filter.frequency.value = frequency;
             const gain = (300 - point.y) / 10;
-            filter.gain.value = Math.max(-40, Math.min(40, gain)); // Limit gain to -40dB to 40dB
+            filter.gain.value = Math.max(-10, Math.min(10, gain));
         });
     };
 
     const drawBezierCurve = (ctx: CanvasRenderingContext2D, points: Point[]) => {
         ctx.beginPath();
         ctx.moveTo(points[0].x, points[0].y);
-        if (points.length === 2) {
-            ctx.lineTo(points[1].x, points[1].y);
-        } else {
-            for (let t = 0; t <= 1; t += 0.01) {
-                const point = bezier(t, points);
-                ctx.lineTo(point.x, point.y);
-            }
+        for (let t = 0; t <= 1; t += 0.01) {
+            const point = bezier(t, points);
+            ctx.lineTo(point.x, point.y);
         }
+        ctx.strokeStyle = 'cyan';
+        ctx.lineWidth = 2;
         ctx.stroke();
-    }
+    };
 
     const drawPoints = (ctx: CanvasRenderingContext2D, points: Point[]) => {
-        points.forEach(point => {
+        points.forEach((point, index) => {
             ctx.beginPath();
-            ctx.arc(point.x, point.y, 5, 0, 2 * Math.PI);
+            ctx.arc(point.x, point.y, 10, 0, 2 * Math.PI);
             ctx.fillStyle = 'red';
             ctx.fill();
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 12px Arial';
+            ctx.fillText((index + 1).toString(), point.x - 4, point.y + 4);
         });
-    }
+    };
 
-    const handleCanvasClick = (event: React.MouseEvent) => {
-        if (isDragging) return;
+    const drawFrequencyLabels = (ctx: CanvasRenderingContext2D) => {
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 12px Arial';
+        const positions = [25, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
+        const xPositions = positions.map(freq => mapValue(Math.log10(freq), Math.log10(20), Math.log10(20000), 0, 800));
+        xPositions.forEach((x, index) => {
+            ctx.fillText(`${positions[index]}`, x, 580);
+        });
+    };
 
-        const canvas = canvasRef.current;
-        if (canvas) {
-            const rect = canvas.getBoundingClientRect();
-            const clickX = event.clientX - rect.left;
-            const clickY = event.clientY - rect.top;
+    const drawFrequencyData = (ctx: CanvasRenderingContext2D) => {
+        if (!analyserNodeRef.current) return;
 
-            const p1 = points[0];
-            const p2 = points[1];
-            const t = (clickX - p1.x) / (p2.x - p1.x);
-            const newPoint = {
-                x: clickX,
-                y: p1.y + t * (p2.y - p1.y)
-            };
+        const bufferLength = analyserNodeRef.current.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        analyserNodeRef.current.getByteFrequencyData(dataArray);
 
-            setControlPoints([...controlPoints, newPoint]);
+        const barWidth = (ctx.canvas.width / bufferLength) * 2.5;
+        let barHeight;
+        let x = 0;
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+        for (let i = 0; i < bufferLength; i++) {
+            barHeight = (dataArray[i] / 256) * ctx.canvas.height;
+            ctx.fillStyle = 'rgba(0, 128, 0, 0.6)';
+            ctx.fillRect(x, ctx.canvas.height - barHeight, barWidth, barHeight);
+            x += barWidth + 1;
         }
-    }
+    };
+
+    const draw = (ctx: CanvasRenderingContext2D) => {
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        drawFrequencyData(ctx);
+        drawFrequencyLabels(ctx);
+        drawBezierCurve(ctx, points);
+        drawPoints(ctx, points);
+        requestAnimationFrame(() => draw(ctx));
+    };
 
     const handleMouseDown = (event: React.MouseEvent) => {
         const canvas = canvasRef.current;
@@ -140,17 +166,12 @@ const BezierCanvas: React.FC = () => {
             const rect = canvas.getBoundingClientRect();
             const x = event.clientX - rect.left;
             const y = event.clientY - rect.top;
-            const pointIndex = points.findIndex(point => Math.hypot(point.x - x, point.y - y) < 5);
-            const controlPointIndex = controlPoints.findIndex(point => Math.hypot(point.x - x, point.y - y) < 5);
+            const pointIndex = points.findIndex(point => Math.hypot(point.x - x, point.y - y) < 10);
             if (pointIndex !== -1) {
                 setDraggingPointIndex(pointIndex);
-                setIsDragging(true);
-            } else if (controlPointIndex !== -1) {
-                setDraggingPointIndex(controlPointIndex + 2);
-                setIsDragging(true);
             }
         }
-    }
+    };
 
     const handleMouseMove = (event: React.MouseEvent) => {
         if (draggingPointIndex !== null) {
@@ -159,62 +180,78 @@ const BezierCanvas: React.FC = () => {
                 const rect = canvas.getBoundingClientRect();
                 const x = event.clientX - rect.left;
                 const y = event.clientY - rect.top;
-                if (draggingPointIndex < 2) {
-                    const newPoints = points.slice();
-                    newPoints[draggingPointIndex] = { x, y };
-                    setPoints(newPoints);
-                } else {
-                    const newControlPoints = controlPoints.slice();
-                    newControlPoints[draggingPointIndex - 2] = { x, y };
-                    setControlPoints(newControlPoints);
-                }
+                const newPoints = points.slice();
+                newPoints[draggingPointIndex] = { x, y };
+                setPoints(newPoints);
             }
         }
-    }
+    };
 
     const handleMouseUp = () => {
         setTimeout(() => {
             setDraggingPointIndex(null);
-            setIsDragging(false);
         }, 100);
-    }
+    };
 
     const handleMouseLeave = () => {
         setTimeout(() => {
             setDraggingPointIndex(null);
-            setIsDragging(false);
         }, 100);
-    }
+    };
 
+    const handleAudioPlay = () => {
+        if (!audioContextRef.current) {
+            setupAudioNodes();
+        }
+        audioElementRef.current?.play();
+    };
 
     return (
-        <div>
+        <div style={{ backgroundColor: '#282c34', padding: '20px', borderRadius: '10px', width: '860px', margin: '0 auto', color: 'white' }}>
             <canvas
                 ref={canvasRef}
-                onClick={handleCanvasClick}
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseLeave}
                 width={800}
                 height={600}
-                style={{ border: '1px solid #000000' }}
+                style={{ border: '1px solid #61dafb', borderRadius: '10px', backgroundColor: '#1e1e1e' }}
             />
-            <audio id="my-audio" controls ref={audioElementRef}></audio>
-            <input type="file" onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file && audioElementRef.current) {
-                    if ("src" in audioElementRef.current) {
-                        audioElementRef.current.src = URL.createObjectURL(file);
+            <audio id="my-audio" controls ref={audioElementRef} onPlay={handleAudioPlay} style={{ width: '100%', marginTop: '10px', borderRadius: '5px' }}></audio>
+            <input
+                type="file"
+                onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file && audioElementRef.current) {
+                        if ("src" in audioElementRef.current) {
+                            audioElementRef.current.src = URL.createObjectURL(file);
+                        }
+                        if ("load" in audioElementRef.current) {
+                            audioElementRef.current.load();
+                        }
+                        setupAudioNodes();
                     }
-                    if ("load" in audioElementRef.current) {
-                        audioElementRef.current.load();
-                    }
-                    setupAudioNodes();
-                }
-            }} />
+                }}
+                style={{
+                    display: 'block',
+                    margin: '10px auto',
+                    padding: '10px 20px',
+                    borderRadius: '5px',
+                    backgroundColor: '#61dafb',
+                    color: 'black',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textAlign: 'center'
+                }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', width: '800px', margin: '20px auto 0' }}>
+                {frequencies.map(freq => (
+                    <span key={freq} style={{ color: 'white' }}>{freq}</span>
+                ))}
+            </div>
         </div>
     );
-}
+};
 
 export default BezierCanvas;
